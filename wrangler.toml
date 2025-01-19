@@ -4,8 +4,11 @@ compatibility_date = "2025-01-18"
 
 # compatibility_flags = [ "nodejs_compat" ]
 
-# [vars]
-# MY_VAR = "my-variable"
+[vars]
+API_KEY=""
+ADMIN_API_KEY=""
+ITEM_API_URL=""
+CONSUMER_SITE_BASE_URL=""
 
 # [[kv_namespaces]]
 # binding = "MY_KV_NAMESPACE"
@@ -15,10 +18,10 @@ compatibility_date = "2025-01-18"
 # binding = "MY_BUCKET"
 # bucket_name = "my-bucket"
 
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "my-database"
-# database_id = ""
+[[d1_databases]]
+binding = "DB"
+database_name = "${DATABASE_NAME}"
+database_id = "${DATABASE_ID}"
 
 # [ai]
 # binding = "AI"
