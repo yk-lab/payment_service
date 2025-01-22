@@ -23,7 +23,10 @@ import {
   consumerCors,
   verifyFirebaseJWT,
 } from "./middlewares";
-import { createTransactionApiRequestSchema } from "./schemas";
+import {
+  adminPrepaidChargeApiRequestSchema,
+  createTransactionApiRequestSchema,
+} from "./schemas";
 import type { Bindings, Variables } from "./type";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
