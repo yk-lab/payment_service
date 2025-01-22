@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import type { SQL } from "drizzle-orm";
-import { eq, getTableColumns, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { chunk } from "es-toolkit/array";
@@ -8,26 +8,13 @@ import { Hono } from "hono";
 
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { ofetch } from "ofetch";
-import { orderDetails, orders, payments, products } from "./db/schema";
+import { orderDetails, orders, payments, products, users } from "./db/schema";
 import type { Item } from "./item-api-schema";
-import { checkApiKey } from "./middlewares";
+import { checkApiKey, consumerCors, verifyFirebaseJWT } from "./middlewares";
 import { createTransactionApiRequestSchema } from "./schemas";
+import type { Bindings, Variables } from "./type";
 
-// Hono 用の型定義。Bindings に API_KEY 等を定義しておく
-type Bindings = {
-  DB: D1Database;
-  API_KEY: string;
-  ADMIN_API_KEY: string;
-  CONSUMER_API_KEY: string;
-  ITEM_API_URL: string;
-  CONSUMER_SITE_BASE_URL: string;
-  FIREBASE_PROJECT_ID: string;
-  FIREBASE_PUBLIC_JWK_CACHE_KEY: string;
-  FIREBASE_PUBLIC_JWK_CACHE_KV: KVNamespace;
-  FIREBASE_AUTH_EMULATOR_HOST: string;
-};
-
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 class UnknownProductError extends Error {
   constructor() {
@@ -57,8 +44,9 @@ const buildConflictUpdateColumns = <
 };
 
 // --- エンドポイント ---
+// POST /api/orders/ 注文情報登録
 app.post(
-  "/api/transactions/",
+  "/api/orders/",
   // APIキー認証
   checkApiKey,
   // リクエストボディのバリデーション
@@ -220,10 +208,247 @@ app.post(
 
     // JSON形式でレスポンス
     return c.json({
-      transactionId: txnId,
-      paymentMethod: payment.method,
-      paymentStatus: payment.status,
+      transactionId: payment.transactionId,
+      amount: payment.amount,
+      method: payment.method,
+      status: payment.status,
       payUrl,
+    });
+  },
+);
+
+// GET /api/payments/:transactionId/ 決済情報取得
+app.get(
+  "/api/payments/:transactionId/",
+  // APIキー認証
+  checkApiKey,
+  async (c) => {
+    // データベース接続
+    const db = drizzle(c.env.DB);
+
+    // SelectSchema を作成
+    const paymentSelectSchema = createSelectSchema(payments);
+
+    // パスパラメータの取得
+    const transactionId = c.req.param("transactionId");
+
+    // 決済情報を取得
+    const payment = paymentSelectSchema.parse(
+      await db.select().from(payments).get({ transactionId }),
+    );
+
+    // JSON形式でレスポンス
+    return c.json({
+      transactionId: payment.transactionId,
+      amount: payment.amount,
+      method: payment.method,
+      status: payment.status,
+    });
+  },
+);
+
+app.use("/api/profile/", consumerCors(["GET"]));
+
+// GET /api/profile/ ユーザー情報取得
+app.get(
+  "/api/profile/",
+  // Firebase JWT 認証
+  verifyFirebaseJWT,
+  async (c) => {
+    // Firebase JWT からユーザーIDを取得
+    const uid = c.var.firebaseIdToken?.uid;
+    if (uid === undefined) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    // データベース接続
+    const db = drizzle(c.env.DB);
+
+    // SelectSchema を作成
+    const userSelectSchema = createSelectSchema(users);
+    const userInsertSchema = createInsertSchema(users);
+
+    // ユーザー情報を取得
+    let _user = await db.select().from(users).where(eq(users.uid, uid)).get();
+    if (_user === undefined) {
+      // ユーザーが存在しない場合は新規作成
+      _user = (
+        await db
+          .insert(users)
+          .values(
+            userInsertSchema.parse({ uid, balance: 0 }) as {
+              uid: string;
+              balance: number;
+            },
+          )
+          .returning()
+      )[0];
+    }
+    const user = userSelectSchema.parse(_user);
+
+    // JSON形式でレスポンス
+    return c.json({
+      id: user.id,
+      uid: user.uid,
+      balance: user.balance,
+    });
+  },
+);
+
+app.use("/api/prepaid/pay/:transactionId/", consumerCors(["GET", "POST"]));
+
+// GET /api/prepaid/pay/:transactionId/ 決済情報取得
+app.get(
+  "/api/prepaid/pay/:transactionId/",
+  // Firebase JWT 認証
+  verifyFirebaseJWT,
+  async (c) => {
+    // Firebase JWT からユーザーIDを取得
+    const uid = c.var.firebaseIdToken?.uid;
+    if (uid === undefined) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    // データベース接続
+    const db = drizzle(c.env.DB);
+
+    // SelectSchema を作成
+    const paymentSelectSchema = createSelectSchema(payments);
+
+    // パスパラメータの取得
+    const transactionId = c.req.param("transactionId");
+
+    // 決済情報を取得
+    const paymentData = await db
+      .select()
+      .from(payments)
+      .where(
+        and(
+          eq(payments.transactionId, transactionId),
+          eq(payments.method, "prepaid"),
+        ),
+      )
+      .get();
+    if (paymentData === undefined) {
+      return c.json({ error: "Payment not found" }, 404);
+    }
+    const payment = paymentSelectSchema.parse(paymentData);
+
+    // JSON形式でレスポンス
+    return c.json({
+      transactionId: payment.transactionId,
+      amount: payment.amount,
+      status: payment.status,
+    });
+  },
+);
+
+// POST /api/prepaid/pay/:transactionId/ 決済処理
+app.post(
+  "/api/prepaid/pay/:transactionId/",
+  // Firebase JWT 認証
+  verifyFirebaseJWT,
+  async (c) => {
+    // Firebase JWT からユーザーIDを取得
+    const uid = c.var.firebaseIdToken?.uid;
+    if (uid === undefined) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+
+    // データベース接続
+    const db = drizzle(c.env.DB);
+
+    // Schema を作成
+    const paymentSelectSchema = createSelectSchema(payments);
+    const userSelectSchema = createSelectSchema(users);
+    const transactionHistoryInsertSchema =
+      createInsertSchema(transactionHistory);
+
+    // パスパラメータの取得
+    const transactionId = c.req.param("transactionId");
+
+    // 決済情報を取得
+    const paymentData = await db
+      .select()
+      .from(payments)
+      .where(
+        and(
+          eq(payments.transactionId, transactionId),
+          eq(payments.method, "prepaid"),
+        ),
+      )
+      .get();
+    if (paymentData === undefined) {
+      return c.json({ error: "Payment not found" }, 404);
+    }
+    const payment = paymentSelectSchema.parse(paymentData) as {
+      transactionId: string;
+      amount: number;
+      status: "pending" | "completed" | "failed";
+    };
+
+    // 決済情報のステータスが pending でない場合はエラー
+    if (payment.status !== "pending") {
+      return c.json({ error: "Payment is not pending" }, 400);
+    }
+
+    // ユーザー情報を取得
+    const userData = await db
+      .select()
+      .from(users)
+      .where(eq(users.uid, uid))
+      .get();
+    if (userData === undefined) {
+      return c.json({ error: "User not found" }, 404);
+    }
+    const user = userSelectSchema.parse(userData);
+
+    // ユーザーの残高を更新
+    const newBalance = user.balance - payment.amount;
+    if (newBalance < 0) {
+      return c.json({ error: "Insufficient balance" }, 400);
+    }
+    await db
+      .update(users)
+      .set({ balance: newBalance })
+      .where(eq(users.uid, uid));
+
+    // 決済情報のステータスを completed に更新
+    await db
+      .update(payments)
+      .set({ status: "completed", paidAt: new Date() })
+      .where(eq(payments.transactionId, transactionId))
+      .returning();
+
+    const updatedPayment = paymentSelectSchema.parse(
+      await db
+        .select()
+        .from(payments)
+        .where(eq(payments.transactionId, transactionId))
+        .get(),
+    );
+
+    // 取引履歴を登録
+    await db.insert(transactionHistory).values(
+      transactionHistoryInsertSchema.parse({
+        transactionId,
+        userId: user.id,
+        amount: payment.amount,
+        transactionType: "payment",
+      }) as {
+        transactionId: string;
+        userId: number;
+        amount: number;
+        transactionType: "payment";
+      },
+    );
+
+    // JSON形式でレスポンス
+    return c.json({
+      transactionId: updatedPayment.transactionId,
+      amount: updatedPayment.amount,
+      method: updatedPayment.method,
+      status: updatedPayment.status,
     });
   },
 );
