@@ -1,4 +1,4 @@
-name = "payment_service"
+name = "${PROJECT_NAME}"
 main = "src/index.ts"
 compatibility_date = "2025-01-18"
 
