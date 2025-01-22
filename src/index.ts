@@ -8,9 +8,21 @@ import { Hono } from "hono";
 
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { ofetch } from "ofetch";
-import { orderDetails, orders, payments, products, users } from "./db/schema";
+import {
+  orderDetails,
+  orders,
+  payments,
+  products,
+  transactionHistory,
+  users,
+} from "./db/schema";
 import type { Item } from "./item-api-schema";
-import { checkApiKey, consumerCors, verifyFirebaseJWT } from "./middlewares";
+import {
+  checkAdminApiKey,
+  checkApiKey,
+  consumerCors,
+  verifyFirebaseJWT,
+} from "./middlewares";
 import { createTransactionApiRequestSchema } from "./schemas";
 import type { Bindings, Variables } from "./type";
 
@@ -213,6 +225,77 @@ app.post(
       method: payment.method,
       status: payment.status,
       payUrl,
+    });
+  },
+);
+
+// -- プリペイド課金 --
+// PUT /api/admin/prepaid/charge/ プリペイドチャージ
+app.put(
+  "/api/admin/prepaid/charge/",
+  // 管理者APIキー認証
+  checkAdminApiKey,
+  // リクエストボディのバリデーション
+  zValidator("json", adminPrepaidChargeApiRequestSchema, (result, c) => {
+    if (!result.success) {
+      return c.json({ error: result.error }, 400);
+    }
+  }),
+  async (c) => {
+    // データベース接続
+    const db = drizzle(c.env.DB);
+
+    // InsertSchema を作成
+    const transactionHistoryInsertSchema =
+      createInsertSchema(transactionHistory);
+    const userSelectSchema = createSelectSchema(users);
+
+    // トランザクションIDを生成
+    const transactionId = crypto.randomUUID();
+
+    // リクエストデータの取得
+    const requestData = c.req.valid("json");
+
+    // ユーザー情報を取得
+    const user = await db
+      .select()
+      .from(users)
+      .where(eq(users.uid, requestData.uid))
+      .get();
+    if (user === undefined) {
+      return c.json({ error: "User not found" }, 404);
+    }
+    const userParsed = userSelectSchema.parse(user);
+
+    // ユーザーの残高を更新
+    const newBalance = userParsed.balance + requestData.amount;
+    await db
+      .update(users)
+      .set({ balance: newBalance })
+      .where(eq(users.id, user.id));
+
+    // トランザクション履歴を登録
+    await db.insert(transactionHistory).values(
+      transactionHistoryInsertSchema.parse({
+        transactionId,
+        userId: user.id,
+        amount: requestData.amount,
+        transactionType: "charge",
+      }) as {
+        transactionId: string;
+        userId: number;
+        amount: number;
+        transactionType: "charge";
+      },
+    );
+
+    // JSON形式でレスポンス
+    return c.json({
+      transactionId,
+      userId: userParsed.id,
+      uid: userParsed.uid,
+      amount: requestData.amount,
+      balance: newBalance,
     });
   },
 );

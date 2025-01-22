@@ -14,3 +14,7 @@ export const createTransactionApiRequestSchema = z.object({
     .min(1),
   paymentMethod: z.enum(["cash", "prepaid"]),
 });
+
+export type CreateTransactionApiRequest = z.infer<
+  typeof createTransactionApiRequestSchema
+>;

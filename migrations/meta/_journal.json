@@ -15,6 +15,13 @@
       "when": 1737297457388,
       "tag": "0001_awesome_silver_surfer",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1737561119526,
+      "tag": "0002_bizarre_peter_parker",
+      "breakpoints": true
     }
   ]
 }

@@ -93,7 +93,7 @@ export const transactionHistory = sqliteTable(
   {
     id: int("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
     transactionId: text("transaction_id"),
-    userId: text("user_id")
+    userId: int("user_id")
       .notNull()
       .references(() => users.id),
     amount: int("amount").notNull(),
