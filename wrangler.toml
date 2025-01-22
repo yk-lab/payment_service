@@ -4,21 +4,27 @@ compatibility_date = "2025-01-18"
 
 # compatibility_flags = [ "nodejs_compat" ]
 
-# [vars]
-# MY_VAR = "my-variable"
+[vars]
+API_KEY=""
+ADMIN_API_KEY=""
+ITEM_API_URL=""
+CONSUMER_SITE_BASE_URL=""
+RESEND_API_KEY=""
+FIREBASE_PROJECT_ID=""
+FIREBASE_PUBLIC_JWK_CACHE_KEY=""
 
-# [[kv_namespaces]]
-# binding = "MY_KV_NAMESPACE"
-# id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+[[kv_namespaces]]
+binding = "FIREBASE_PUBLIC_JWK_CACHE_KV"
+id = "${FIREBASE_PUBLIC_JWK_CACHE_KV_ID}"
 
 # [[r2_buckets]]
 # binding = "MY_BUCKET"
 # bucket_name = "my-bucket"
 
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "my-database"
-# database_id = ""
+[[d1_databases]]
+binding = "DB"
+database_name = "${DATABASE_NAME}"
+database_id = "${DATABASE_ID}"
 
 # [ai]
 # binding = "AI"

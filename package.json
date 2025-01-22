@@ -2,13 +2,29 @@
   "name": "payment_service",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy --minify"
+    "deploy": "wrangler deploy --minify",
+    "migration:generate": "drizzle-kit generate",
+    "local:migration": "wrangler d1 migrations apply --local"
   },
   "dependencies": {
-    "hono": "^4.6.17"
+    "@hono/zod-validator": "0.4.2",
+    "dotenv": "16.4.7",
+    "drizzle-orm": "0.38.4",
+    "drizzle-zod": "0.6.1",
+    "es-toolkit": "1.31.0",
+    "firebase-auth-cloudflare-workers": "2.0.6",
+    "hono": "^4.6.17",
+    "ofetch": "1.4.1",
+    "resend": "4.1.1",
+    "zod": "3.24.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "1.9.4",
     "@cloudflare/workers-types": "^4.20250109.0",
+    "drizzle-kit": "0.30.2",
+    "tsc": "2.0.4",
+    "tsx": "4.19.2",
+    "typescript": "5.7.3",
     "wrangler": "^3.101.0"
   },
   "packageManager": "pnpm@9.15.4+sha512.b2dc20e2fc72b3e18848459b37359a32064663e5627a51e4c74b2c29dd8e8e0491483c3abb40789cfd578bf362fb6ba8261b05f0387d76792ed6e23ea3b1b6a0",
