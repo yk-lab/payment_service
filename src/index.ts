@@ -4,13 +4,13 @@ import { eq, getTableColumns, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { chunk } from "es-toolkit/array";
-import type { Context, Next } from "hono";
 import { Hono } from "hono";
 
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { ofetch } from "ofetch";
 import { orderDetails, orders, payments, products } from "./db/schema";
 import type { Item } from "./item-api-schema";
+import { checkApiKey } from "./middlewares";
 import { createTransactionApiRequestSchema } from "./schemas";
 
 // Hono 用の型定義。Bindings に API_KEY 等を定義しておく
@@ -18,9 +18,13 @@ type Bindings = {
   DB: D1Database;
   API_KEY: string;
   ADMIN_API_KEY: string;
+  CONSUMER_API_KEY: string;
   ITEM_API_URL: string;
   CONSUMER_SITE_BASE_URL: string;
-  // もしKVを使う場合は KV: KVNamespace などを追加
+  FIREBASE_PROJECT_ID: string;
+  FIREBASE_PUBLIC_JWK_CACHE_KEY: string;
+  FIREBASE_PUBLIC_JWK_CACHE_KV: KVNamespace;
+  FIREBASE_AUTH_EMULATOR_HOST: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -33,18 +37,6 @@ class UnknownProductError extends Error {
 }
 
 // --- ユーティリティ関数 ---
-// 定数時間比較関数
-const safeCompare = (a: string, b: string): boolean => {
-  if (a.length !== b.length) {
-    return false;
-  }
-  let mismatch = 0;
-  for (let i = 0; i < a.length; i++) {
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return mismatch === 0;
-};
-
 // 重複時の更新カラムを生成
 const buildConflictUpdateColumns = <
   T extends SQLiteTable,
@@ -62,21 +54,6 @@ const buildConflictUpdateColumns = <
     },
     {} as Record<Q, SQL>,
   );
-};
-
-// --- ミドルウェア ---
-// APIキー認証
-const checkApiKey = async (c: Context, next: Next) => {
-  const apiKey = c.req.header("X-API-KEY") || "";
-  const serverKey = c.env.API_KEY || "";
-
-  // 定数時間比較関数で照合
-  if (!safeCompare(apiKey, serverKey)) {
-    return c.text("Unauthorized", 401);
-  }
-
-  // 認証成功なら次の処理へ
-  await next();
 };
 
 // --- エンドポイント ---
