@@ -218,7 +218,7 @@ app.post(
     // 決済URLを生成
     const payUrl =
       payment.status === "pending"
-        ? `${c.env.CONSUMER_SITE_BASE_URL}/pay?txnId=${txnId}`
+        ? `${c.env.CONSUMER_SITE_BASE_URL}/pay/${txnId}/`
         : null;
 
     // JSON形式でレスポンス
@@ -319,9 +319,20 @@ app.get(
     const transactionId = c.req.param("transactionId");
 
     // 決済情報を取得
-    const payment = paymentSelectSchema.parse(
-      await db.select().from(payments).get({ transactionId }),
-    );
+    const paymentData = await db
+      .select()
+      .from(payments)
+      .where(
+        and(
+          eq(payments.transactionId, transactionId),
+          eq(payments.method, "prepaid"),
+        ),
+      )
+      .get();
+    if (paymentData === undefined) {
+      return c.json({ error: "Payment not found" }, 404);
+    }
+    const payment = paymentSelectSchema.parse(paymentData);
 
     // JSON形式でレスポンス
     return c.json({
